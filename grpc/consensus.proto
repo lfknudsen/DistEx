@@ -1,0 +1,15 @@
+edition = "2023";
+
+option go_package = "./consensus";
+
+service Node {
+  rpc Message(Request) returns (Reply) {}
+}
+
+message Request {
+  int64 timestamp = 1;
+}
+
+message Reply {
+  int64 timestamp = 1;
+}
