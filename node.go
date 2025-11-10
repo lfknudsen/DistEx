@@ -16,7 +16,7 @@ import (
 
 var LamportTime int64 = 0
 
-var State eCriticalSystemState
+var State eCriticalSystemState = RELEASED
 
 var Port uint16
 
@@ -24,25 +24,24 @@ type Server struct {
 	UnimplementedNodeServer
 }
 
+var logger *log.Logger
+
 func main() {
 	Port := ParseArguments(os.Args)
-
-	State = RELEASED
-	logFile, logger := InitLogging()
-	defer ShutdownLogging(logFile, logger)
+	logFile := InitLogging()
+	defer ShutdownLogging(logFile)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", Port))
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
-	fmt.Printf("Listening on #%d.\n", lis.Addr())
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	nodeServer := Server{}
 	RegisterNodeServer(grpcServer, nodeServer)
 
 	wait := make(chan struct{})
-	go Serve(grpcServer, lis, wait, logger)
+	go Serve(grpcServer, lis, wait)
 	go ReadUserInput(wait)
 	for {
 		select {
@@ -54,11 +53,11 @@ func main() {
 
 func ReadUserInput(wait chan struct{}) {
 	reader := bufio.NewScanner(os.Stdin)
-	fmt.Println("Node started. Enter messages to store in shared file:")
+	logger.Println("Node started. Enter messages to store in shared file:")
 	for {
 		reader.Scan()
 		if reader.Err() != nil {
-			log.Fatalf("fail to call Read: %v", reader.Err())
+			logger.Fatalf("fail to call Read: %v", reader.Err())
 		}
 		text := reader.Text()
 		if text == "quit" || text == "exit" {
@@ -72,30 +71,33 @@ func ReadUserInput(wait chan struct{}) {
 	}
 }
 
-func Serve(server *grpc.Server, lis net.Listener, wait chan struct{}, logger *log.Logger) {
+func Serve(server *grpc.Server, lis net.Listener, wait chan struct{}) {
 	err := server.Serve(lis)
 	if err != nil {
 		wait <- struct{}{}
 		logger.Fatalf("failed to serve: %v", err)
 	}
+	logger.Printf("Listening on %s.\n", lis.Addr())
 }
 
 func accessCriticalSystem(text string) {
 	file, err := os.OpenFile("shared.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatalf("fail to open file: %v", err)
+		logger.Fatalf("fail to open file: %v", err)
 	}
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			log.Fatalf("fail to close file: %v", err)
+			logger.Fatalf("fail to close file: %v", err)
 		}
 	}(file)
 
-	_, err = file.WriteString(time.Now().Format(time.DateTime) + ": " + text + "\n")
+	stringToWrite := fmt.Sprintf("%s: %s\n", time.Now().Format(time.DateTime), text)
+	_, err = file.WriteString(stringToWrite)
 	if err != nil {
-		log.Fatalf("fail to write string: %v", err)
+		logger.Fatalf("fail to write string: %v", err)
 	}
+	logger.Printf("Wrote to critical resource.\n")
 }
 
 type eCriticalSystemState uint8
@@ -106,15 +108,17 @@ const (
 	HELD     eCriticalSystemState = iota
 )
 
-func InitLogging() (*os.File, *log.Logger) {
+func InitLogging() *os.File {
 	file, err := os.Create("log.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
-	return file, log.New(file, "Node _: ", 0)
+	prefix := fmt.Sprintf("Node %d: ", Port)
+	logger = log.New(file, prefix, 0)
+	return file
 }
 
-func ShutdownLogging(writer *os.File, logger *log.Logger) {
+func ShutdownLogging(writer *os.File) {
 	logger.Println("Server shut down.")
 	_ = writer.Close()
 }
