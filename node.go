@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -12,13 +13,18 @@ var LamportTime int64 = 0
 
 var State eCriticalSystemState
 
+var Port uint16
+
 func main() {
+	Port := ParseArguments(os.Args)
+
 	State = RELEASED
 	logFile, logger := InitLogging()
 	defer ShutdownLogging(logFile, logger)
 
 	wait := make(chan struct{})
 	reader := bufio.NewScanner(os.Stdin)
+	fmt.Printf("Node is assigned port #%d.\n", Port)
 	fmt.Println("Node started. Enter messages to store in shared file:")
 	go func() {
 		for {
@@ -82,4 +88,15 @@ func InitLogging() (*os.File, *log.Logger) {
 func ShutdownLogging(writer *os.File, logger *log.Logger) {
 	logger.Println("Server shut down.")
 	_ = writer.Close()
+}
+
+func ParseArguments(args []string) (port uint64) {
+	if len(args) != 2 {
+		log.Fatal("Usage: go run main.go <port>")
+	}
+	port, err := strconv.ParseUint(args[1], 10, 16)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return port
 }
