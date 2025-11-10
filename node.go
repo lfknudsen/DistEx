@@ -14,6 +14,8 @@ var State eCriticalSystemState
 
 func main() {
 	State = RELEASED
+	logFile, logger := InitLogging()
+	defer ShutdownLogging(logFile, logger)
 
 	wait := make(chan struct{})
 	reader := bufio.NewScanner(os.Stdin)
@@ -68,3 +70,16 @@ const (
 	WANTED   eCriticalSystemState = iota
 	HELD     eCriticalSystemState = iota
 )
+
+func InitLogging() (*os.File, *log.Logger) {
+	file, err := os.Create("log.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	return file, log.New(file, "Node _: ", 0)
+}
+
+func ShutdownLogging(writer *os.File, logger *log.Logger) {
+	logger.Println("Server shut down.")
+	_ = writer.Close()
+}
