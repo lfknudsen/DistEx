@@ -39,8 +39,6 @@ type Server struct {
 	State       eCriticalSystemState
 }
 
-var Service Server
-
 func main() {
 	Service := Server{
 		LamportTime: new(int64),
@@ -209,7 +207,7 @@ func ParseArguments(args []string) *int64 {
 }
 
 // Request is the RPC executed when the caller wants access to the critical area.
-func (s *Server) Request(ctx context.Context, msg *Message) (*Reply, error) {
+func (s *Server) Request(_ context.Context, msg *Message) (*Reply, error) {
 	isBusy := false
 	s.logf("Received critical area access request from node %d.", msg.GetId())
 	if s.State == HELD || (s.State == WANTED && *s.LamportTime < *msg.Timestamp) {
@@ -231,7 +229,7 @@ func (s *Server) Request(ctx context.Context, msg *Message) (*Reply, error) {
 
 // Respond is the RPC executed when the caller is finished in the critical area,
 // and found this node in its queue.
-func (s *Server) Respond(ctx context.Context, msg *Message) (*Released, error) {
+func (s *Server) Respond(_ context.Context, msg *Message) (*Released, error) {
 	s.wg.Done() // Decrements the wait-group's counter.
 	s.UpdateTime(msg.Timestamp)
 	s.IncrementTime()
