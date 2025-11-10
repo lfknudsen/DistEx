@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 var Nodes []int64
 
 var LamportTime *int64
+
+var TimeLock sync.Mutex = sync.Mutex{}
 
 var State eCriticalSystemState = RELEASED
 
@@ -44,11 +47,9 @@ var logger *log.Logger
 var wg sync.WaitGroup
 
 func main() {
-	Nodes := []int64{5000, 5001, 5002}
-	_ = Nodes
-
 	LamportTime = new(int64)
 	Port = ParseArguments(os.Args)
+	setupOtherNodeList()
 	filename := fmt.Sprintf("log-%d.txt", *Port)
 	file, err := os.Create(filename)
 	if err != nil {
@@ -84,6 +85,7 @@ func main() {
 func ReadUserInput(wait chan struct{}) {
 	reader := bufio.NewScanner(os.Stdin)
 	fmt.Printf("Node %d started. Enter messages to store in shared file:\n", *Port)
+	logf("Node has begun listening to user input through standard input.")
 	for {
 		reader.Scan()
 		if reader.Err() != nil {
@@ -135,24 +137,26 @@ func AccessCriticalResource(text string) {
 	if err != nil {
 		logger.Fatalf("failed to write string: %v", err)
 	}
-	logf("Wrote to critical resource.\n")
+	logf("Wrote to critical resource: \"%s\"\n", text)
 	exit()
 }
 
 // enter performs the necessary actions when attempting to gain access to the
 // critical section.
 func enter() {
-	*LamportTime += 1
+	IncrementTime()
 	State = WANTED
+	logf("Setting state to WANTED.")
+	logf("Broadcasting to all other nodes.")
 	for _, node := range Nodes {
-		if node != *Port {
-			wg.Add(1) //increment waitgroup for the routines to finish themselves
-			go broadcast(node)
-		}
+		logf("Broadcast to node %d\n", node)
+		wg.Add(1) //increment waitgroup for the routines to finish themselves
+		go broadcast(node)
 	}
 
 	wg.Wait() // added wait condition (meaning N-1 have been closed)
 	State = HELD
+	logf("Received N-1 replies. Setting state to HELD.")
 }
 
 // broadcast sends a request-for-access to the given port.
@@ -179,12 +183,15 @@ func broadcast(targetPort int64) {
 	// for a response that will never arrive.
 	if err != nil {
 		wg.Done()
+		logf("Failed to broadcast to node %d. Skipping it.", targetPort)
+	} else {
+		logf("Broadcasted to node %d.", targetPort)
 	}
 }
 
 // ShutdownLogging closes the file which backs the logger.
 func ShutdownLogging(writer *os.File) {
-	logf("Server shut down.\n")
+	logf("Node shut down.\n")
 	_ = writer.Close()
 }
 
@@ -203,26 +210,30 @@ func ParseArguments(args []string) *int64 {
 
 // Request is the RPC executed when the caller wants access to the critical area.
 func Request(msg *Message) *Reply {
-	isQueued := false
+	isBusy := false
+	logf("Received critical area access request from node %d.", msg.GetId())
 	if State == HELD || (State == WANTED && *LamportTime < *msg.Timestamp) {
-		RequestQueue = append(RequestQueue, *msg.Id)
-		isQueued = true
+		isBusy = true
 	}
-	if *msg.Timestamp > *LamportTime {
-		*LamportTime = *msg.Timestamp
-		*LamportTime += 1
+	UpdateTime(msg.Timestamp)
+	IncrementTime()
+	if isBusy {
+		logf("Adding request to queue.")
+		RequestQueue = append(RequestQueue, msg.GetId())
+	} else {
+		logf("Replying immediately to request.")
+		reply(msg.GetId())
 	}
 	return &Reply{
-		IsQueued: &isQueued,
+		IsQueued: &isBusy,
 	}
 }
 
 // Respond is the RPC executed when the caller is finished in the critical area.
 func Respond(msg *Message) *Released {
 	wg.Done()
-	if *msg.Timestamp > *LamportTime {
-		*LamportTime = *msg.Timestamp
-	}
+	UpdateTime(msg.Timestamp)
+	logf("Received reply to critical area access request from node %d.", msg.GetId())
 	return &Released{}
 }
 
@@ -261,5 +272,41 @@ func reply(targetPort int64) {
 func logf(format string, v ...any) {
 	prefix := fmt.Sprintf("Node %d. Time: %d. ", *Port, *LamportTime)
 	logger.SetPrefix(prefix)
-	logger.Printf(format, v...)
+	text := fmt.Sprintf(format, v...)
+	if !(strings.HasSuffix(format, "\n") || strings.HasSuffix(format, "\r")) {
+		logger.Println(text)
+	} else {
+		logger.Print(text)
+	}
+}
+
+// setupOtherNodeList creates the list of other distributed nodes.
+func setupOtherNodeList() {
+	Nodes := []int64{5000, 5001, 5002}
+
+	// Remove own node from list
+	for i := range Nodes {
+		if Nodes[i] == *Port {
+			if i == len(Nodes)-1 {
+				Nodes = Nodes[:i]
+			} else {
+				Nodes = append(Nodes[:i], Nodes[i+1:]...)
+			}
+			break
+		}
+	}
+}
+
+func IncrementTime() {
+	TimeLock.Lock()
+	defer TimeLock.Unlock()
+	*LamportTime += 1
+}
+
+func UpdateTime(other *int64) {
+	TimeLock.Lock()
+	defer TimeLock.Unlock()
+	if *LamportTime < *other {
+		*LamportTime = *other
+	}
 }
