@@ -27,17 +27,17 @@ Section will eventually gain access
 
 ## Technical Requirements
 
-- Implement the service's nodes using Golang
+1. Implement the service's nodes using Golang
 
-- Provide a README.md file in your source code repository that
+2. Provide a README.md file in your source code repository that
   explains how to start your system
 
-- Use gRPC for message passing between nodes (hint: each node is both
+3. Use gRPC for message passing between nodes (hint: each node is both
   a grpc server and a client to every other node)
 
-- Demonstrate that the system can start with at least three nodes
+4. Demonstrate that the system can start with at least three nodes
 
-- Show, using system logs, a sequence of messages that leads to a node
+5. Show, using system logs, a sequence of messages that leads to a node
   gaining access to the Critical Section.
 
 
