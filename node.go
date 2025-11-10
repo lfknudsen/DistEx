@@ -26,26 +26,26 @@ const (
 	HELD     eCriticalSystemState = iota
 )
 
-var RequestQueue []int64
-
 type Server struct {
 	UnimplementedNodeServer
-	logger      *log.Logger
-	wg          *sync.WaitGroup
-	LamportTime *int64
-	Port        *int64
-	TimeLock    *sync.Mutex
-	Nodes       []int64
-	State       eCriticalSystemState
+	logger       *log.Logger
+	wg           *sync.WaitGroup
+	LamportTime  *int64
+	Port         *int64
+	TimeLock     *sync.Mutex
+	Nodes        []int64
+	State        eCriticalSystemState
+	RequestQueue []int64
 }
 
 func main() {
 	Service := Server{
-		LamportTime: new(int64),
-		Port:        ParseArguments(os.Args),
-		wg:          &sync.WaitGroup{},
-		TimeLock:    new(sync.Mutex),
-		State:       RELEASED,
+		LamportTime:  new(int64),
+		Port:         ParseArguments(os.Args),
+		wg:           &sync.WaitGroup{},
+		TimeLock:     new(sync.Mutex),
+		State:        RELEASED,
+		RequestQueue: make([]int64, 0),
 	}
 	Service.Nodes = setupOtherNodeList(*Service.Port)
 
@@ -217,7 +217,7 @@ func (s *Server) Request(_ context.Context, msg *Message) (*Reply, error) {
 	s.IncrementTime()
 	if isBusy {
 		s.logf("Adding request to queue.")
-		RequestQueue = append(RequestQueue, msg.GetId())
+		s.RequestQueue = append(s.RequestQueue, msg.GetId())
 	} else {
 		s.logf("Replying immediately to request.")
 		s.reply(msg.GetId())
@@ -240,9 +240,10 @@ func (s *Server) Respond(_ context.Context, msg *Message) (*Released, error) {
 // exit performs the necessary actions when leaving the critical section.
 func (s *Server) exit() {
 	s.State = RELEASED
-	for _, targetPort := range RequestQueue {
+	for _, targetPort := range s.RequestQueue {
 		s.reply(targetPort)
 	}
+	s.RequestQueue = s.RequestQueue[:0]
 }
 
 // reply sends the individual response to a target node after this node has finished
